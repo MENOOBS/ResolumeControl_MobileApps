@@ -11,6 +11,9 @@ dependencies:
   flutter:
     sdk: flutter
   carousel_slider: ^4.2.1
+  osc: ^1.0.0
+  udp: ^5.0.3
+  shared_preferences: ^2.5.2
 
 dev_dependencies:
   flutter_test:

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
 void main() {
@@ -22,78 +23,90 @@ class ResolumeControlScreen extends StatefulWidget {
 }
 
 class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
-  final String backendURL = "http://192.168.100.9:3000/play"; // Backend untuk OSC
-  final String resolumeIP = "192.168.100.9"; // IP Resolume
+  String resolumeIP = "192.168.100.9"; // Default IP Resolume
+  final int resolumePort = 8080; // Port Resolume API
   final PageController _pageController = PageController();
   int _currentPage = 0;
   List<String> imageUrls = [];
+  TextEditingController ipController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    fetchClipData(); // Ambil data clip saat aplikasi dimulai
+    loadSavedIP();
+    fetchClipData();
+  }
+
+  /// **🔹 Load IP Resolume yang disimpan sebelumnya**
+  Future<void> loadSavedIP() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? savedIP = prefs.getString("resolumeIP");
+    if (savedIP != null) {
+      setState(() {
+        resolumeIP = savedIP;
+      });
+      fetchClipData(); // Fetch ulang dengan IP baru
+    }
+  }
+
+  /// **🔹 Simpan IP Resolume ke SharedPreferences**
+  Future<void> saveIP(String ip) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString("resolumeIP", ip);
+    setState(() {
+      resolumeIP = ip;
+    });
+    fetchClipData(); // Refresh data setelah ganti IP
   }
 
   /// **🔹 Ambil jumlah clip & thumbnail dari Resolume**
   Future<void> fetchClipData() async {
-  List<String> urls = [];
-  int layerIndex = 1; // Coba ubah ke 0 jika perlu
+    List<String> urls = [];
+    int layerIndex = 1;
 
-  try {
-    final response = await http.get(
-      Uri.parse("http://$resolumeIP:8080/api/v1/composition/layers/1"),
-    );
+    try {
+      final response = await http.get(
+        Uri.parse("http://$resolumeIP:$resolumePort/api/v1/composition/layers/1"),
+      );
 
-    print("🔍 API Response: ${response.statusCode}");
-    print("📜 Response Body: ${response.body}");
+      if (response.statusCode == 200) {
+        var decodedResponse = jsonDecode(response.body);
+        var clips = decodedResponse['clips'];
 
-    if (response.statusCode == 200) {
-      var decodedResponse = jsonDecode(response.body);
-      
-      // Periksa jika data berupa Map atau List
-      if (decodedResponse is List) {
-        // Jika data berupa List, langsung proses seperti sebelumnya
-        for (int clipIndex = 0; clipIndex < decodedResponse.length; clipIndex++) {
-          String thumbnailUrl =
-              "http://$resolumeIP:8080/api/v1/composition/layers/$layerIndex/clips/${clipIndex + 1}/thumbnail";
-          urls.add(thumbnailUrl);
-        }
-      } else if (decodedResponse is Map) {
-        // Jika data berupa Map, coba ambil value yang sesuai
-        var clips = decodedResponse['clips']; // Pastikan key yang benar di sini
         if (clips is List) {
           for (int clipIndex = 0; clipIndex < clips.length; clipIndex++) {
             String thumbnailUrl =
-                "http://$resolumeIP:8080/api/v1/composition/layers/$layerIndex/clips/${clipIndex + 1}/thumbnail";
+                "http://$resolumeIP:$resolumePort/api/v1/composition/layers/$layerIndex/clips/${clipIndex + 1}/thumbnail";
             urls.add(thumbnailUrl);
           }
         }
+
+        setState(() {
+          imageUrls = urls;
+        });
+      } else {
+        print("❌ Gagal mendapatkan daftar clip: ${response.body}");
       }
-
-      setState(() {
-        imageUrls = urls;
-      });
-    } else {
-      print("❌ Gagal mendapatkan daftar clip: ${response.body}");
+    } catch (e) {
+      print("❌ Error mengambil data Resolume: $e");
     }
-  } catch (e) {
-    print("❌ Error mengambil data Resolume: $e");
   }
-}
 
+  /// **🔹 Kirim HTTP request untuk memilih clip di Resolume**
+  Future<void> selectClip(int layer, int clip) async {
+    final String url =
+        "http://$resolumeIP:$resolumePort/api/v1/composition/layers/$layer/clips/${clip}/connect";
 
-  /// **🔹 Kirim perintah ke Resolume via backend**
-  void sendOscRequest(int layer, int clip) async {
-    final response = await http.post(
-      Uri.parse(backendURL),
-      headers: {"Content-Type": "application/json"},
-      body: jsonEncode({"layer": layer, "clip": clip}),
-    );
+    try {
+      final response = await http.post(Uri.parse(url));
 
-    if (response.statusCode == 200) {
-      print("✅ Berhasil mengontrol Resolume");
-    } else {
-      print("❌ Gagal: ${response.body}");
+      if (response.statusCode == 200 || response.statusCode == 204) {
+        print("✅ Berhasil memilih clip: $clip di layer $layer!");
+      } else {
+        print("❌ Gagal memilih clip: ${response.statusCode} - ${response.body}");
+      }
+    } catch (e) {
+      print("❌ Error dalam pengiriman HTTP request: $e");
     }
   }
 
@@ -102,11 +115,36 @@ class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
     return Scaffold(
       appBar: AppBar(title: Text("Resolume Control")),
       body: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
+          // **Input IP Resolume**
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: ipController,
+                    decoration: InputDecoration(
+                      labelText: "Masukkan IP Resolume",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                SizedBox(width: 10),
+                ElevatedButton(
+                  onPressed: () {
+                    saveIP(ipController.text);
+                  },
+                  child: Text("Simpan"),
+                ),
+              ],
+            ),
+          ),
+
+          // **Tampilkan Thumbnail Clip**
           Expanded(
             child: imageUrls.isEmpty
-                ? Center(child: CircularProgressIndicator()) // Loading jika kosong
+                ? Center(child: CircularProgressIndicator())
                 : PageView.builder(
                     controller: _pageController,
                     physics: ClampingScrollPhysics(),
@@ -123,18 +161,20 @@ class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
                           imageUrls[index],
                           fit: BoxFit.cover,
                           errorBuilder: (context, error, stackTrace) {
-                            return Icon(Icons.broken_image, size: 100); // Jika gagal load
+                            return Icon(Icons.broken_image, size: 100);
                           },
                         ),
                       );
                     },
                   ),
           ),
+
+          // **Tombol Pilih Clip**
           SizedBox(height: 20),
           imageUrls.isEmpty
               ? Container()
               : ElevatedButton(
-                  onPressed: () => sendOscRequest(1, _currentPage + 1),
+                  onPressed: () => selectClip(1, _currentPage + 1),
                   child: Text("Pilih Layer 1 - Clip ${_currentPage + 1}"),
                 ),
           SizedBox(height: 20),
@@ -143,4 +183,3 @@ class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
     );
   }
 }
- 
