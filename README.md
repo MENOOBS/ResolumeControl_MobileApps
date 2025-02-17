@@ -1,3 +1,7 @@
+Jangan lupa ubah IP Resolumenya sesuai IP Resolume kamu
+
+Masih Beta ya maaf kalau ada banyak BUG/Error nya
+
 How to use : 
 
 flutter pub get
