@@ -1,15 +1,18 @@
 Jangan lupa ubah IP Resolumenya sesuai IP Resolume kamu
 
+yang dibutuhkan : 
+ - Android Studio
+ - Flutter SDK
+
 Masih Beta ya maaf kalau ada banyak BUG/Error nya
 
 How to use : 
-
+cd frontend
 flutter pub get
 
+
+*Open New Terminal
 cd backend
 node server.js
 
-*Open new Terminal
-
-cd frontend
-flutter run
+Terminal Frontend : flutter run
