@@ -31,24 +31,56 @@ class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
   @override
   void initState() {
     super.initState();
-    fetchThumbnails(); // Ambil thumbnail saat aplikasi dimulai
+    fetchClipData(); // Ambil data clip saat aplikasi dimulai
   }
 
-  /// **🔹 Ambil Thumbnail dari Resolume**
-  Future<void> fetchThumbnails() async {
-    List<String> urls = [];
-    int layerIndex = 1; // Ganti sesuai kebutuhan
+  /// **🔹 Ambil jumlah clip & thumbnail dari Resolume**
+  Future<void> fetchClipData() async {
+  List<String> urls = [];
+  int layerIndex = 1; // Coba ubah ke 0 jika perlu
 
-    for (int clipIndex = 1; clipIndex <= 3; clipIndex++) {
-      String url =
-          "http://$resolumeIP:8080/api/v1/composition/layers/$layerIndex/clips/$clipIndex/thumbnail";
-      urls.add(url);
+  try {
+    final response = await http.get(
+      Uri.parse("http://$resolumeIP:8080/api/v1/composition/layers/1"),
+    );
+
+    print("🔍 API Response: ${response.statusCode}");
+    print("📜 Response Body: ${response.body}");
+
+    if (response.statusCode == 200) {
+      var decodedResponse = jsonDecode(response.body);
+      
+      // Periksa jika data berupa Map atau List
+      if (decodedResponse is List) {
+        // Jika data berupa List, langsung proses seperti sebelumnya
+        for (int clipIndex = 0; clipIndex < decodedResponse.length; clipIndex++) {
+          String thumbnailUrl =
+              "http://$resolumeIP:8080/api/v1/composition/layers/$layerIndex/clips/${clipIndex + 1}/thumbnail";
+          urls.add(thumbnailUrl);
+        }
+      } else if (decodedResponse is Map) {
+        // Jika data berupa Map, coba ambil value yang sesuai
+        var clips = decodedResponse['clips']; // Pastikan key yang benar di sini
+        if (clips is List) {
+          for (int clipIndex = 0; clipIndex < clips.length; clipIndex++) {
+            String thumbnailUrl =
+                "http://$resolumeIP:8080/api/v1/composition/layers/$layerIndex/clips/${clipIndex + 1}/thumbnail";
+            urls.add(thumbnailUrl);
+          }
+        }
+      }
+
+      setState(() {
+        imageUrls = urls;
+      });
+    } else {
+      print("❌ Gagal mendapatkan daftar clip: ${response.body}");
     }
-
-    setState(() {
-      imageUrls = urls;
-    });
+  } catch (e) {
+    print("❌ Error mengambil data Resolume: $e");
   }
+}
+
 
   /// **🔹 Kirim perintah ke Resolume via backend**
   void sendOscRequest(int layer, int clip) async {
@@ -99,13 +131,16 @@ class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
                   ),
           ),
           SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: () => sendOscRequest(1, _currentPage + 1),
-            child: Text("Pilih Layer 1 - Clip ${_currentPage + 1}"),
-          ),
+          imageUrls.isEmpty
+              ? Container()
+              : ElevatedButton(
+                  onPressed: () => sendOscRequest(1, _currentPage + 1),
+                  child: Text("Pilih Layer 1 - Clip ${_currentPage + 1}"),
+                ),
           SizedBox(height: 20),
         ],
       ),
     );
   }
 }
+ 
