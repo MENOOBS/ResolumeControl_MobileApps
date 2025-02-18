@@ -1,6 +1,6 @@
 Jangan lupa ubah IP Resolumenya sesuai IP Resolume kamu
 
-yang dibutuhkan : 
+yang dibutuhkan untuk Developtmen: 
  - Android Studio
  - Flutter SDK
 
