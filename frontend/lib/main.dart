@@ -12,6 +12,19 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.dark(
+          primary: Colors.blue,
+          secondary: Colors.blueAccent,
+          surface: Color(0xFF1E1E1E),
+          background: Color(0xFF121212),
+        ),
+        appBarTheme: AppBarTheme(
+          backgroundColor: Color(0xFF1E1E1E),
+          elevation: 0,
+        ),
+      ),
       home: ResolumeControlScreen(),
     );
   }
@@ -23,8 +36,8 @@ class ResolumeControlScreen extends StatefulWidget {
 }
 
 class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
-  String resolumeIP = "192.168.100.9"; // Default IP Resolume
-  final int resolumePort = 8080; // Port Resolume API
+  String resolumeIP = "192.168.100.9";
+  final int resolumePort = 8080;
   final PageController _pageController = PageController();
   int _currentPage = 0;
   List<String> imageUrls = [];
@@ -37,29 +50,27 @@ class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
     fetchClipData();
   }
 
-  /// **🔹 Load IP Resolume yang disimpan sebelumnya**
   Future<void> loadSavedIP() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     String? savedIP = prefs.getString("resolumeIP");
     if (savedIP != null) {
       setState(() {
         resolumeIP = savedIP;
+        ipController.text = savedIP;
       });
-      fetchClipData(); // Fetch ulang dengan IP baru
+      fetchClipData();
     }
   }
 
-  /// **🔹 Simpan IP Resolume ke SharedPreferences**
   Future<void> saveIP(String ip) async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setString("resolumeIP", ip);
     setState(() {
       resolumeIP = ip;
     });
-    fetchClipData(); // Refresh data setelah ganti IP
+    fetchClipData();
   }
 
-  /// **🔹 Ambil jumlah clip & thumbnail dari Resolume**
   Future<void> fetchClipData() async {
     List<String> urls = [];
     int layerIndex = 1;
@@ -84,100 +95,219 @@ class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
         setState(() {
           imageUrls = urls;
         });
-      } else {
-        print("❌ Gagal mendapatkan daftar clip: ${response.body}");
       }
     } catch (e) {
       print("❌ Error mengambil data Resolume: $e");
     }
   }
 
-  /// **🔹 Kirim HTTP request untuk memilih clip di Resolume**
   Future<void> selectClip(int layer, int clip) async {
-    final String url =
-        "http://$resolumeIP:$resolumePort/api/v1/composition/layers/$layer/clips/${clip}/connect";
-
     try {
-      final response = await http.post(Uri.parse(url));
+      final response = await http.post(
+        Uri.parse("http://$resolumeIP:$resolumePort/api/v1/composition/layers/$layer/clips/${clip}/connect"),
+      );
 
       if (response.statusCode == 200 || response.statusCode == 204) {
-        print("✅ Berhasil memilih clip: $clip di layer $layer!");
-      } else {
-        print("❌ Gagal memilih clip: ${response.statusCode} - ${response.body}");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Berhasil dipilih!'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } catch (e) {
-      print("❌ Error dalam pengiriman HTTP request: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal memilih clip: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("Resolume Control")),
+      backgroundColor: Theme.of(context).colorScheme.background,
+      appBar: AppBar(
+        title: Text(
+          "Resolume Control",
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        centerTitle: true,
+      ),
       body: Column(
         children: [
-          // **Input IP Resolume**
-          Padding(
-            padding: const EdgeInsets.all(16.0),
+          Container(
+            margin: EdgeInsets.all(16),
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 10,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
             child: Row(
               children: [
                 Expanded(
                   child: TextField(
                     controller: ipController,
+                    style: TextStyle(color: Colors.white),
                     decoration: InputDecoration(
-                      labelText: "Masukkan IP Resolume",
-                      border: OutlineInputBorder(),
+                      labelText: "IP Resolume",
+                      labelStyle: TextStyle(color: Colors.white70),
+                      border: InputBorder.none,
+                      icon: Icon(Icons.computer, color: Colors.white70),
                     ),
                   ),
                 ),
-                SizedBox(width: 10),
-                ElevatedButton(
-                  onPressed: () {
-                    saveIP(ipController.text);
-                  },
-                  child: Text("Simpan"),
+                ElevatedButton.icon(
+                  onPressed: () => saveIP(ipController.text),
+                  icon: Icon(Icons.save),
+                  label: Text("Simpan"),
+                  style: ElevatedButton.styleFrom(
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
-
-          // **Tampilkan Thumbnail Clip**
           Expanded(
             child: imageUrls.isEmpty
-                ? Center(child: CircularProgressIndicator())
-                : PageView.builder(
-                    controller: _pageController,
-                    physics: ClampingScrollPhysics(),
-                    itemCount: imageUrls.length,
-                    onPageChanged: (index) {
-                      setState(() {
-                        _currentPage = index;
-                      });
-                    },
-                    itemBuilder: (context, index) {
-                      return Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Image.network(
-                          imageUrls[index],
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Icon(Icons.broken_image, size: 100);
-                          },
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text(
+                          "Memuat thumbnail...",
+                          style: TextStyle(color: Colors.white70),
                         ),
-                      );
-                    },
+                      ],
+                    ),
+                  )
+                : Container(
+                    margin: EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black26,
+                          blurRadius: 10,
+                          offset: Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: PageView.builder(
+                      controller: _pageController,
+                      physics: ClampingScrollPhysics(),
+                      itemCount: imageUrls.length,
+                      onPageChanged: (index) {
+                        setState(() {
+                          _currentPage = index;
+                        });
+                      },
+                      itemBuilder: (context, index) {
+                        return Container(
+                          margin: EdgeInsets.all(16),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.network(
+                              imageUrls[index],
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  color: Colors.grey[900],
+                                  child: Icon(
+                                    Icons.broken_image,
+                                    size: 100,
+                                    color: Colors.white54,
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                   ),
           ),
-
-          // **Tombol Pilih Clip**
-          SizedBox(height: 20),
-          imageUrls.isEmpty
-              ? Container()
-              : ElevatedButton(
-                  onPressed: () => selectClip(1, _currentPage + 1),
-                  child: Text("Pilih Layer 1 - Clip ${_currentPage + 1}"),
-                ),
-          SizedBox(height: 20),
+          if (imageUrls.isNotEmpty) ...[
+            Container(
+              margin: EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: _currentPage > 0
+                        ? () {
+                            _pageController.previousPage(
+                              duration: Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
+                            );
+                          }
+                        : null,
+                    icon: Icon(Icons.arrow_back),
+                    label: Text("Previous"),
+                    style: ElevatedButton.styleFrom(
+                      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 15),
+                  ElevatedButton.icon(
+                    onPressed: () => selectClip(1, _currentPage + 1),
+                    icon: Icon(Icons.play_arrow),
+                    label: Text("Play This"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 16),
+                  ElevatedButton.icon(
+                    onPressed: _currentPage < imageUrls.length - 1
+                        ? () {
+                            _pageController.nextPage(
+                              duration: Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
+                            );
+                          }
+                        : null,
+                    icon: Icon(Icons.arrow_forward),
+                    label: Text("Next"),
+                    style: ElevatedButton.styleFrom(
+                      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
