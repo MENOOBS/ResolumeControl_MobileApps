@@ -37,8 +37,8 @@ class ResolumeControlScreen extends StatefulWidget {
 }
 
 class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
-  String resolumeIP = "192.168.100.9";
-  final int resolumePort = 8080;
+  String resolumeIP = "YOUR RESOLUME IP";
+  final int resolumePort = YOUR RESOLUME PORT;
   List<String> imageUrls = [];
   TextEditingController ipController = TextEditingController();
   int? selectedIndex;
