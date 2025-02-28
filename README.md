@@ -10,9 +10,4 @@ How to use :
 cd frontend
 flutter pub get
 
-
-*Open New Terminal
-cd backend
-node server.js
-
-Terminal Frontend : flutter run
+Terminal Frontend ( test ) : flutter run
