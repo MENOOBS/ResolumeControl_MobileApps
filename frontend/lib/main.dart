@@ -30,25 +30,37 @@ class MyApp extends StatelessWidget {
   }
 }
 
-
 class ResolumeControlScreen extends StatefulWidget {
   @override
   _ResolumeControlScreenState createState() => _ResolumeControlScreenState();
 }
 
-class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
+class _ResolumeControlScreenState extends State<ResolumeControlScreen> with SingleTickerProviderStateMixin {
   String resolumeIP = "192.168.100.9";
   final int resolumePort = 8080;
   List<String> imageUrls = [];
+  List<String> clipTitles = [];
   TextEditingController ipController = TextEditingController();
-  int? selectedIndex;
+  int? selectedClipIndex;
+  int? selectedDeckIndex;
+  
+  // For deck control
+  List<DeckInfo> decks = [];
+  TabController? _tabController;
 
   @override
   void initState() {
     super.initState();
     loadSavedIP();
-    fetchClipData();
     _checkGuideStatus();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController?.dispose();
+    ipController.dispose();
+    super.dispose();
   }
 
   Future<void> _checkGuideStatus() async {
@@ -65,38 +77,31 @@ class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
   }
 
   void _showGuideDialog() {
-    bool dontShowAgain = false;
-
     showDialog(
       context: context,
       builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              title: Text("Panduan Menggunakan Aplikasi Ini"),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                      "1. Masukkan IP Address : 192.168.18.43 ke dalam aplikasi.\n"
-                      "2. Tekan tombol Simpan.\n"
-                      "3. Pastikan  perangkat berada dalam WIFI POV.\n"
-                      "4. Jika Konten tidak muncul, periksa koneksi dan coba lagi."),
-                  Row(
-                  ),
-                ],
+        return AlertDialog(
+          title: Text("Panduan Menggunakan Aplikasi Ini"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "1. Masukkan IP Address Resolume ke dalam aplikasi.\n"
+                "2. Tekan tombol Simpan.\n"
+                "3. Pastikan perangkat berada dalam WIFI yang sama dengan Resolume.\n"
+                "4. Tab Clips untuk memilih clip, dan tab Decks untuk mengubah deck.\n"
+                "5. Jika konten tidak muncul, periksa koneksi dan coba lagi."
               ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                   
-                    Navigator.of(context).pop();
-                  },
-                  child: Text("OK"),
-                ),
-              ],
-            );
-          },
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text("OK"),
+            ),
+          ],
         );
       },
     );
@@ -110,7 +115,7 @@ class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
         resolumeIP = savedIP;
         ipController.text = savedIP;
       });
-      fetchClipData();
+      fetchResolumeData();
     }
   }
 
@@ -120,16 +125,22 @@ class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
     setState(() {
       resolumeIP = ip;
     });
+    fetchResolumeData();
+  }
+
+  Future<void> fetchResolumeData() async {
     fetchClipData();
+    fetchDeckData();
   }
 
   Future<void> fetchClipData() async {
     List<String> urls = [];
+    List<String> clipNames = []; // Simpan nama clip
     int layerIndex = 1;
 
     try {
       final response = await http.get(
-        Uri.parse("http://$resolumeIP:$resolumePort/api/v1/composition/layers/1"),
+        Uri.parse("http://$resolumeIP:$resolumePort/api/v1/composition/layers/$layerIndex"),
       );
 
       if (response.statusCode == 200) {
@@ -138,24 +149,94 @@ class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
 
         if (clips is List) {
           for (int clipIndex = 0; clipIndex < clips.length; clipIndex++) {
-            String thumbnailUrl =
-                "http://$resolumeIP:$resolumePort/api/v1/composition/layers/$layerIndex/clips/${clipIndex + 1}/thumbnail";
-            urls.add(thumbnailUrl);
+            var clip = clips[clipIndex];
+            if (clip is Map<String, dynamic>) {
+              String? clipName = clip['name']?['value'];
+
+              // Hanya tambahkan jika nama tidak kosong
+              if (clipName != null && clipName.trim().isNotEmpty) {
+                String thumbnailUrl =
+                    "http://$resolumeIP:$resolumePort/api/v1/composition/layers/$layerIndex/clips/${clipIndex + 1}/thumbnail";
+                urls.add(thumbnailUrl);
+                clipNames.add(clipName); // Simpan nama clip
+              }
+            }
           }
         }
 
         setState(() {
           imageUrls = urls;
+          clipTitles = clipNames;
         });
       }
     } catch (e) {
-      print("❌ Error mengambil data Resolume: $e");
+      print("❌ Error mengambil data clip Resolume: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal mengambil data clip: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
+
+  Future<void> fetchDeckData() async {
+    try {
+      final response = await http.get(
+        Uri.parse("http://$resolumeIP:$resolumePort/api/v1/composition"),
+      );
+
+      if (response.statusCode == 200) {
+        var decodedResponse = jsonDecode(response.body);
+        var decksData = decodedResponse['decks'];
+
+        List<DeckInfo> fetchedDecks = [];
+        if (decksData is List) {
+          for (var deck in decksData) {
+            if (deck is Map<String, dynamic>) {
+              // Konversi ID menjadi String
+              String deckId = deck['id']?.toString() ?? 'Unknown';
+              // Ambil nilai `value` dari objek `name`
+              String deckName = deck['name']?['value']?.toString() ?? 'Deck ${fetchedDecks.length + 1}';
+              // Ambil nilai `value` dari objek `selected`
+              bool isSelected = deck['selected']?['value'] == true;
+
+              fetchedDecks.add(DeckInfo(
+                id: deckId,
+                name: deckName,
+                isSelected: isSelected,
+              ));
+            }
+          }
+        }
+
+        setState(() {
+          decks = fetchedDecks;
+          // Temukan deck yang dipilih
+          for (int i = 0; i < decks.length; i++) {
+            if (decks[i].isSelected) {
+              selectedDeckIndex = i;
+              break;
+            }
+          }
+        });
+      }
+    } catch (e) {
+      print("❌ Error mengambil data deck Resolume: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal mengambil data deck: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
   Future<void> selectClip(int layer, int clip) async {
     setState(() {
-      selectedIndex = clip - 1;
+      selectedClipIndex = clip - 1;
     });
 
     try {
@@ -166,7 +247,7 @@ class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
       if (response.statusCode == 200 || response.statusCode == 204) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Berhasil dipilih!'),
+            content: Text('Clip berhasil dipilih!'),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
           ),
@@ -186,10 +267,47 @@ class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
     Future.delayed(Duration(milliseconds: 500), () {
       if (mounted) {
         setState(() {
-          selectedIndex = null;
+          selectedClipIndex = null;
         });
       }
     });
+  }
+
+  Future<void> selectDeck(String deckId, int index) async {
+    setState(() {
+      selectedDeckIndex = index;
+    });
+
+    try {
+      final response = await http.post(
+        Uri.parse("http://$resolumeIP:$resolumePort/api/v1/composition/decks/by-id/$deckId/select"),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 204) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Deck berhasil dipilih!'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        
+        // Update deck status
+        for (int i = 0; i < decks.length; i++) {
+          decks[i].isSelected = (i == index);
+        }
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal memilih deck: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+
+    // Keep selection visible
   }
 
   @override
@@ -207,12 +325,33 @@ class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
         ),
         actions: [
           IconButton(
+            icon: Icon(Icons.refresh),
+            onPressed: fetchResolumeData,
+            color: Color.fromARGB(255, 0, 0, 1),
+          ),
+          IconButton(
             icon: Icon(Icons.help_outline),
             onPressed: _showGuideDialog,
             color: Color.fromARGB(255, 0, 0, 1),
           ),
         ],
         centerTitle: true,
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: [
+            Tab(
+              icon: Icon(Icons.video_library),
+              text: "Clips",
+            ),
+            Tab(
+              icon: Icon(Icons.dashboard),
+              text: "Decks",
+            ),
+          ],
+          labelColor: Colors.black,
+          unselectedLabelColor: Colors.black54,
+          indicatorColor: Colors.black,
+        ),
       ),
       body: Column(
         children: [
@@ -259,149 +398,281 @@ class _ResolumeControlScreenState extends State<ResolumeControlScreen> {
             ),
           ),
           Expanded(
-            child: imageUrls.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 16),
-                        Text(
-                          "Memuat thumbnail...",
-                          style: TextStyle(color: Colors.white70),
-                        ),
-                      ],
-                    ),
-                  )
-                : Container(
-                    margin: EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black26,
-                          blurRadius: 10,
-                          offset: Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: GridView.builder(
-                      padding: EdgeInsets.all(16),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 16,
-                        mainAxisSpacing: 16,
-                        childAspectRatio: 1,
-                      ),
-                      itemCount: imageUrls.length,
-                      itemBuilder: (context, index) {
-                        bool isSelected = selectedIndex == index;
-                        return AnimatedContainer(
-                          duration: Duration(milliseconds: 300),
-                          transform: isSelected
-                              ? (Matrix4.identity()..scale(0.95))
-                              : Matrix4.identity(),
-                          child: InkWell(
-                            onTap: () => selectClip(1, index + 1),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: isSelected
-                                      ? Theme.of(context).colorScheme.primary
-                                      : Colors.white24,
-                                  width: isSelected ? 2 : 1,
-                                ),
-                                boxShadow: isSelected
-                                    ? [
-                                        BoxShadow(
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .primary
-                                              .withOpacity(0.5),
-                                          blurRadius: 10,
-                                          spreadRadius: 2,
-                                        )
-                                      ]
-                                    : [],
-                              ),
-                              child: Column(
-                                children: [
-                                  Expanded(
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.vertical(
-                                        top: Radius.circular(12),
-                                      ),
-                                      child: Stack(
-                                        children: [
-                                          Image.network(
-                                            imageUrls[index],
-                                            fit: BoxFit.cover,
-                                            width: double.infinity,
-                                            height: double.infinity,
-                                            errorBuilder:
-                                                (context, error, stackTrace) {
-                                              return Container(
-                                                color: Colors.grey[900],
-                                                child: Icon(
-                                                  Icons.broken_image,
-                                                  size: 40,
-                                                  color: Colors.white54,
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                          if (isSelected)
-                                            Container(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .primary
-                                                  .withOpacity(0.3),
-                                              child: Center(
-                                                child: Icon(
-                                                  Icons.play_circle_fill,
-                                                  color: Colors.white,
-                                                  size: 48,
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                  AnimatedContainer(
-                                    duration: Duration(milliseconds: 300),
-                                    width: double.infinity,
-                                    padding: EdgeInsets.symmetric(vertical: 8),
-                                    decoration: BoxDecoration(
-                                      color: isSelected
-                                          ? Theme.of(context).colorScheme.primary
-                                          : Colors.black45,
-                                      borderRadius: BorderRadius.vertical(
-                                        bottom: Radius.circular(12),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      'Clip ${index + 1}',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                // Clips Tab
+                _buildClipsTab(),
+                
+                // Decks Tab
+                _buildDecksTab(),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildClipsTab() {
+    return imageUrls.isEmpty
+        ? Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text(
+                  "Memuat thumbnail clip...",
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ],
+            ),
+          )
+        : Container(
+            margin: EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 10,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
+            child: GridView.builder(
+              padding: EdgeInsets.all(16),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                childAspectRatio: 1,
+              ),
+              itemCount: imageUrls.length,
+              itemBuilder: (context, index) {
+                bool isSelected = selectedClipIndex == index;
+                return AnimatedContainer(
+                  duration: Duration(milliseconds: 300),
+                  transform: isSelected
+                      ? (Matrix4.identity()..scale(0.95))
+                      : Matrix4.identity(),
+                  child: InkWell(
+                    onTap: () => selectClip(1, index + 1),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSelected
+                              ? Theme.of(context).colorScheme.primary
+                              : Colors.white24,
+                          width: isSelected ? 2 : 1,
+                        ),
+                        boxShadow: isSelected
+                            ? [
+                                BoxShadow(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .primary
+                                      .withOpacity(0.5),
+                                  blurRadius: 10,
+                                  spreadRadius: 2,
+                                )
+                              ]
+                            : [],
+                      ),
+                      child: Column(
+                        children: [
+                          Expanded(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.vertical(
+                                top: Radius.circular(12),
+                              ),
+                              child: Stack(
+                                children: [
+                                  Image.network(
+                                    imageUrls[index],
+                                    fit: BoxFit.cover,
+                                    width: double.infinity,
+                                    height: double.infinity,
+                                    errorBuilder:
+                                        (context, error, stackTrace) {
+                                      return Container(
+                                        color: Colors.grey[900],
+                                        child: Icon(
+                                          Icons.broken_image,
+                                          size: 40,
+                                          color: Colors.white54,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  if (isSelected)
+                                    Container(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .primary
+                                          .withOpacity(0.3),
+                                      child: Center(
+                                        child: Icon(
+                                          Icons.play_circle_fill,
+                                          color: Colors.white,
+                                          size: 48,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          AnimatedContainer(
+                            duration: Duration(milliseconds: 300),
+                            width: double.infinity,
+                            padding: EdgeInsets.symmetric(vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Colors.black45,
+                              borderRadius: BorderRadius.vertical(
+                                bottom: Radius.circular(12),
+                              ),
+                            ),
+                            child: Text(
+                              clipTitles[index],
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          );
+  }
+
+  Widget _buildDecksTab() {
+    return decks.isEmpty
+        ? Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text(
+                  "Memuat data deck...",
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ],
+            ),
+          )
+        : Container(
+            margin: EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 10,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
+            child: ListView.builder(
+              padding: EdgeInsets.all(16),
+              itemCount: decks.length,
+              itemBuilder: (context, index) {
+                bool isSelected = selectedDeckIndex == index;
+                return Card(
+                  elevation: isSelected ? 8 : 2,
+                  margin: EdgeInsets.only(bottom: 12),
+                  color: isSelected 
+                      ? Theme.of(context).colorScheme.primary 
+                      : Theme.of(context).colorScheme.surface,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                      color: isSelected 
+                          ? Colors.white 
+                          : Colors.white24,
+                      width: isSelected ? 2 : 1,
+                    ),
+                  ),
+                  child: InkWell(
+                    onTap: () => selectDeck(decks[index].id, index),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.dashboard,
+                            size: 32,
+                            color: isSelected ? Colors.white : Colors.white70,
+                          ),
+                          SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  decks[index].name,
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: isSelected ? Colors.white : Colors.white,
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  "ID: ${decks[index].id}",
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isSelected ? Colors.white70 : Colors.white54,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (isSelected)
+                            Container(
+                              padding: EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.check,
+                                color: Theme.of(context).colorScheme.primary,
+                                size: 16,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          );
+  }
+}
+
+class DeckInfo {
+  final String id; // Explicitly defined as String
+  final String name;
+  bool isSelected;
+
+  DeckInfo({
+    required this.id,
+    required this.name,
+    required this.isSelected,
+  });
 }
